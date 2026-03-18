@@ -4,82 +4,211 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Health Monitoring System</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+      * {
+        box-sizing: border-box;
+      }
+
       body {
         margin: 0;
         font-family: Arial, sans-serif;
         background: #0f172a;
         color: white;
-        display: flex;
-        justify-content: center;
-        align-items: center;
         min-height: 100vh;
+        padding: 24px;
       }
+
       .container {
-        width: 90%;
-        max-width: 800px;
+        width: 100%;
+        max-width: 1100px;
+        margin: 0 auto;
         background: #1e293b;
         border-radius: 20px;
         padding: 30px;
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
       }
+
       h1 {
         text-align: center;
-        margin-bottom: 30px;
+        margin-bottom: 10px;
       }
+
+      .sub {
+        text-align: center;
+        color: #94a3b8;
+        margin-bottom: 24px;
+      }
+
+      .alert-banner {
+        display: none;
+        background: #7f1d1d;
+        border: 1px solid #ef4444;
+        color: #fecaca;
+        padding: 14px 16px;
+        border-radius: 14px;
+        margin-bottom: 20px;
+        font-weight: bold;
+        text-align: center;
+      }
+
       .grid {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
         gap: 20px;
       }
+
       .card {
         background: #334155;
         border-radius: 16px;
         padding: 20px;
         text-align: center;
       }
+
       .label {
         font-size: 18px;
         color: #cbd5e1;
         margin-bottom: 10px;
       }
+
       .value {
         font-size: 42px;
         font-weight: bold;
       }
+
       .unit {
         font-size: 20px;
         color: #94a3b8;
       }
+
+      .normal {
+        border: 2px solid transparent;
+      }
+
+      .danger-card {
+        border: 2px solid #ef4444;
+        box-shadow: 0 0 20px rgba(239, 68, 68, 0.25);
+      }
+
+      .section {
+        margin-top: 28px;
+      }
+
+      .section-title {
+        font-size: 22px;
+        margin-bottom: 14px;
+      }
+
+      .chart-wrap {
+        background: #334155;
+        border-radius: 16px;
+        padding: 20px;
+      }
+
       .footer {
         margin-top: 25px;
         text-align: center;
         color: #94a3b8;
       }
+
       .status {
         margin-top: 10px;
         font-size: 14px;
         color: #22c55e;
+        font-weight: bold;
+      }
+
+      .status-danger {
+        color: #ef4444;
+      }
+
+      .thresholds {
+        margin-top: 8px;
+        font-size: 14px;
+        color: #cbd5e1;
+      }
+
+      .alert-list {
+        background: #334155;
+        border-radius: 16px;
+        padding: 18px;
+        max-height: 320px;
+        overflow-y: auto;
+      }
+
+      .alert-item {
+        padding: 12px 14px;
+        border-radius: 12px;
+        background: #475569;
+        margin-bottom: 10px;
+        border-left: 5px solid #ef4444;
+      }
+
+      .alert-time {
+        font-size: 13px;
+        color: #cbd5e1;
+        margin-bottom: 4px;
+      }
+
+      .alert-text {
+        font-size: 15px;
+        font-weight: bold;
+        color: #fecaca;
+      }
+
+      .empty-alert {
+        color: #cbd5e1;
+        text-align: center;
+        padding: 10px;
+      }
+
+      @media (max-width: 768px) {
+        .value {
+          font-size: 34px;
+        }
       }
     </style>
   </head>
   <body>
     <div class="container">
       <h1>Health Monitoring Dashboard</h1>
+      <div class="sub">
+        Giám sát nhiệt độ cơ thể và nhịp tim theo thời gian thực
+      </div>
+
+      <div class="alert-banner" id="alertBanner">
+        CẢNH BÁO: Chỉ số sức khỏe đang vượt mức quy định
+      </div>
 
       <div class="grid">
-        <div class="card">
+        <div class="card normal" id="tempCard">
           <div class="label">Nhiệt độ cơ thể</div>
           <div class="value">
             <span id="temp">--</span> <span class="unit">°C</span>
           </div>
+          <div class="thresholds">Ngưỡng bình thường: 37.0°C - 37.5°C</div>
         </div>
 
-        <div class="card">
+        <div class="card normal" id="hrCard">
           <div class="label">Nhịp tim</div>
           <div class="value">
             <span id="hr">--</span> <span class="unit">BPM</span>
           </div>
+          <div class="thresholds">Ngưỡng bình thường: 60 - 100 BPM</div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Biểu đồ lịch sử</div>
+        <div class="chart-wrap">
+          <canvas id="healthChart"></canvas>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Lịch sử cảnh báo</div>
+        <div class="alert-list" id="alertList">
+          <div class="empty-alert">Chưa có cảnh báo nào</div>
         </div>
       </div>
 
@@ -95,6 +224,8 @@
         getDatabase,
         ref,
         onValue,
+        query,
+        limitToLast,
       } from "https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js";
 
       const firebaseConfig = {
@@ -109,6 +240,11 @@
         measurementId: "G-DWGD6367RD",
       };
 
+      const FEVER_TEMP_MIN = 37.0;
+      const FEVER_TEMP_MAX = 37.5;
+      const BPM_MIN = 60;
+      const BPM_MAX = 100;
+
       const app = initializeApp(firebaseConfig);
       const db = getDatabase(app);
 
@@ -116,6 +252,92 @@
       const hrEl = document.getElementById("hr");
       const updatedEl = document.getElementById("updated");
       const statusEl = document.getElementById("status");
+      const alertBannerEl = document.getElementById("alertBanner");
+      const tempCardEl = document.getElementById("tempCard");
+      const hrCardEl = document.getElementById("hrCard");
+      const alertListEl = document.getElementById("alertList");
+
+      const chartCtx = document.getElementById("healthChart").getContext("2d");
+      const healthChart = new Chart(chartCtx, {
+        type: "line",
+        data: {
+          labels: [],
+          datasets: [
+            {
+              label: "Nhiệt độ (°C)",
+              data: [],
+              borderColor: "#f59e0b",
+              backgroundColor: "rgba(245, 158, 11, 0.2)",
+              tension: 0.3,
+            },
+            {
+              label: "Nhịp tim (BPM)",
+              data: [],
+              borderColor: "#22c55e",
+              backgroundColor: "rgba(34, 197, 94, 0.2)",
+              tension: 0.3,
+            },
+          ],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: true,
+          plugins: {
+            legend: {
+              labels: {
+                color: "#ffffff",
+              },
+            },
+          },
+          scales: {
+            x: {
+              ticks: { color: "#cbd5e1" },
+              grid: { color: "rgba(255,255,255,0.08)" },
+            },
+            y: {
+              ticks: { color: "#cbd5e1" },
+              grid: { color: "rgba(255,255,255,0.08)" },
+            },
+          },
+        },
+      });
+
+      function formatDateTime(ms) {
+        if (!ms) return "--";
+        return new Date(ms).toLocaleString("vi-VN");
+      }
+
+      function formatTime(ms) {
+        if (!ms) return "--";
+        return new Date(ms).toLocaleTimeString("vi-VN");
+      }
+
+      function isTempDanger(temp) {
+        return temp < FEVER_TEMP_MIN || temp > FEVER_TEMP_MAX;
+      }
+
+      function isHrDanger(hr) {
+        return hr !== 0 && (hr < BPM_MIN || hr > BPM_MAX);
+      }
+
+      function updateDangerUI(temp, hr) {
+        const tempDanger = isTempDanger(temp);
+        const hrDanger = isHrDanger(hr);
+        const hasDanger = tempDanger || hrDanger;
+
+        tempCardEl.className = tempDanger ? "card danger-card" : "card normal";
+        hrCardEl.className = hrDanger ? "card danger-card" : "card normal";
+
+        if (hasDanger) {
+          alertBannerEl.style.display = "block";
+          statusEl.textContent = "Cảnh báo: chỉ số đang vượt mức quy định";
+          statusEl.className = "status status-danger";
+        } else {
+          alertBannerEl.style.display = "none";
+          statusEl.textContent = "Đã kết nối realtime với Firebase";
+          statusEl.className = "status";
+        }
+      }
 
       onValue(
         ref(db, "health/latest"),
@@ -124,22 +346,72 @@
 
           if (!data) {
             statusEl.textContent = "Chưa có dữ liệu từ Firebase";
+            statusEl.className = "status status-danger";
             return;
           }
+
+          const temp = Number(data.bodyTemp ?? 0);
+          const hr = Number(data.heartRate ?? 0);
 
           tempEl.textContent = data.bodyTemp ?? "--";
           hrEl.textContent = data.heartRate ?? "--";
           updatedEl.textContent = data.updatedAt
-            ? new Date(data.updatedAt).toLocaleString("vi-VN")
+            ? formatDateTime(data.updatedAt)
             : "--";
 
-          statusEl.textContent = "Đã kết nối realtime với Firebase";
+          updateDangerUI(temp, hr);
         },
         (error) => {
           console.error(error);
           statusEl.textContent = "Lỗi kết nối Firebase";
+          statusEl.className = "status status-danger";
         },
       );
+
+      onValue(query(ref(db, "health/history"), limitToLast(20)), (snapshot) => {
+        const raw = snapshot.val();
+        if (!raw) return;
+
+        const items = Object.values(raw).sort(
+          (a, b) => a.updatedAt - b.updatedAt,
+        );
+
+        healthChart.data.labels = items.map((item) =>
+          formatTime(item.updatedAt),
+        );
+        healthChart.data.datasets[0].data = items.map(
+          (item) => item.bodyTemp ?? null,
+        );
+        healthChart.data.datasets[1].data = items.map(
+          (item) => item.heartRate ?? null,
+        );
+        healthChart.update();
+      });
+
+      onValue(query(ref(db, "health/alerts"), limitToLast(10)), (snapshot) => {
+        const raw = snapshot.val();
+
+        if (!raw) {
+          alertListEl.innerHTML =
+            '<div class="empty-alert">Chưa có cảnh báo nào</div>';
+          return;
+        }
+
+        const items = Object.values(raw).sort(
+          (a, b) => b.updatedAt - a.updatedAt,
+        );
+
+        alertListEl.innerHTML = items
+          .map((item) => {
+            return `
+              <div class="alert-item">
+                <div class="alert-time">${formatDateTime(item.updatedAt)}</div>
+                <div class="alert-text">${item.message ?? "Có cảnh báo vượt ngưỡng"}</div>
+              </div>
+            `;
+          })
+          .join("");
+      });
     </script>
   </body>
 </html>
